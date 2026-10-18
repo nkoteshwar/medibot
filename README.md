@@ -198,3 +198,80 @@ The core security requirement is that RBAC is enforced **at the Qdrant retrieval
 | **SQL RAG** | **SQLite + LangChain** | Standalone 3-step Python function (`sql_rag_chain`) with regex SQL cleaning to safely execute queries over `claims` and `maintenance_tickets`. |
 | **Backend** | **FastAPI** | Fast async REST API with JWT bearer authentication, CORS support, and RBAC endpoint guardrails. |
 | **Frontend** | **Next.js 15 (App Router)** | Modern responsive interface with 1-click demo logins, role badges, citation inspection, and reranker score transparency. |
+
+---
+
+## 🧪 Web Interface Verification & Testing Guide
+
+This guide walks through testing MediBot directly in the browser at **[http://localhost:3000](http://localhost:3000)** to verify that the system retrieves accurate, up-to-date answers from both document collections and relational databases.
+
+### 🚀 Prerequisites Check
+1. **Backend Server**: Running at `http://localhost:8000` (`python -m uvicorn backend.main:app --reload --port 8000`)
+   - Health check: [http://localhost:8000/health](http://localhost:8000/health) returns `{"status": "healthy"}`
+2. **Frontend UI**: Running at `http://localhost:3000` (`cd frontend && npm run dev`)
+   - The top header will display `Backend Status: Online` (green).
+
+---
+
+### 1. SQL RAG Analytics Testing (Authorized Roles)
+
+> **Login Account**: Click the **`billing.ravi`** (*Billing & Claims Executive*) or **`admin.sys`** (*Systems Administrator*) profile card.
+
+Quantitative and aggregate queries are automatically detected by the query router and dispatched to the SQL RAG engine over `mediassist.db`.
+
+```mermaid
+flowchart LR
+    A["User submits analytical question"] --> B["Router detects SQL intent"]
+    B --> C["RBAC check verifies role has SQL clearance"]
+    C --> D["LLM generates & cleans SQLite query"]
+    D --> E["Executed on mediassist.db"]
+    E --> F["LLM synthesizes natural language answer with SQL drawer"]
+```
+
+#### Test Queries, Generated SQL & Verified Results
+
+| # | Question | Generated SQLite Query | Raw DB Result | Final Synthesized Answer |
+|---|---|---|---|---|
+| **1** | *"How many billing claims are currently pending?"* | `SELECT COUNT(*) AS pending_claims_count FROM claims WHERE status = 'pending';` | `[(17,)]` | *"There are **17 billing claims** currently in the pending status."* |
+| **2** | *"What is the total claimed amount across all claims?"* | `SELECT SUM(claimed_amount) AS total_claimed_amount FROM claims;` | `[(6694500.0,)]` | *"The total claimed amount across all claims is **$6,694,500.00**."* |
+| **3** | *"Which equipment category has the highest number of maintenance tickets?"* | `SELECT category, COUNT(*) AS ticket_count FROM maintenance_tickets GROUP BY category ORDER BY ticket_count DESC LIMIT 1;` | `[('monitoring', 25)]` | *"The **monitoring** equipment category has the highest number of maintenance tickets, totaling **25 tickets**."* |
+| **4** | *"How many maintenance tickets are currently in progress versus resolved?"* | `SELECT status, COUNT(*) AS count FROM maintenance_tickets WHERE status IN ('in_progress', 'resolved') GROUP BY status;` | `[('in_progress', 15), ('resolved', 42)]` | *"There are **15 maintenance tickets currently in progress** and **42 tickets that have been resolved**."* |
+| **5** | *"Which department has submitted the most billing claims?"* | `SELECT department, COUNT(*) AS claim_count FROM claims GROUP BY department ORDER BY claim_count DESC LIMIT 1;` | `[('cardiology', 20)]` | *"The **Cardiology** department has submitted the highest number of billing claims, totaling **20 claims**."* |
+| **6** | *"What is the average claimed amount for cardiology department claims?"* | `SELECT AVG(claimed_amount) AS avg_claimed_amount FROM claims WHERE department = 'cardiology';` | `[(110105.0,)]` | *"The average claimed amount for all cardiology department claims is **$110,105.00**."* |
+
+#### What to Verify in the Web UI:
+- **`⚡ SQL RAG` Badge**: Displayed at the top of the assistant's reply.
+- **`🔍 View Executed SQLite Query` Drawer**: Expand the accordion to view the exact executable SQL query that was run against `mediassist.db`.
+- **Source Citation**: Highlights `mediassist.db` under the `relational_database` collection.
+
+---
+
+### 2. SQL RAG RBAC Protection Testing (Unauthorized Roles)
+
+Verify that clinical and maintenance staff are physically blocked from running operational or financial database queries:
+
+1. Click **`Switch Profile / Logout`** in the top navigation bar.
+2. Click **`nurse.priya`** (*Staff Nurse*) or **`dr.mehta`** (*Doctor*).
+3. Submit the identical analytical prompt:
+   > *"How many billing claims are currently pending and what is the total claimed amount across all departments?"*
+4. **Expected Result**:
+   - The query router identifies the query as `SQL` intent.
+   - The role permission check confirms `nurse` is **not** authorized for database analytics.
+   - Query execution halts immediately without generating SQL or accessing the database.
+   - **MediBot Response**:
+     > *"🔒 **Access Control Refusal (RBAC Policy)**: As a Staff Nurse (Nursing & Patient Care), you do not have permission to execute operational SQL analytics or query the internal financial/maintenance databases. Authorized Roles: `billing_executive`, `admin`."*
+
+---
+
+### 3. Document Retrieval & Cross-Encoder Reranking Testing (Hybrid RAG)
+
+Verify that medical and operational policies retrieve exact citations and show reranker transparency:
+
+1. Log in as **`dr.mehta`** (*Doctor*).
+2. Ask:
+   > *"What is the diagnostic criteria and treatment protocol for acute STEMI myocardial infarction?"*
+3. **What to Verify in the Web UI**:
+   - **`🌲 Hybrid RAG` Badge**: Confirms document vector search.
+   - **`📚 Verified Source Citations`**: Shows citation cards referencing `treatment_protocols.pdf` and specific section headers extracted by Docling.
+   - **`🎯 Cross-Encoder Reranking Log (Top 3)` Drawer**: Click to expand and view the `ms-marco-MiniLM-L-6-v2` reranker joint scores and candidate rank changes.
+
